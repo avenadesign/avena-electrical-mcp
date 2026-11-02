@@ -47,7 +47,7 @@ class H(BaseHTTPRequestHandler):
   if self.path=="/agent/status":
    pid=self.get_auth()
    if not pid:return self.send(401,{"error":"unauthorized"})
-   return self.send(200,{"ok":True,"paired":True,"online":time.monotonic()-last.get(pid,0)<35})
+   return self.send(200,{"ok":True,"paired":True,"connection_id":pid[:8],"online":time.monotonic()-last.get(pid,0)<35})
   return self.send(404,{"error":"not_found"})
  def do_POST(self):
   if self.path=="/mcp":
@@ -106,7 +106,7 @@ class H(BaseHTTPRequestHandler):
    elif name not in ["workstation_status",*TOOLS,"autocad_drawing_apply","autocad_entity_edit_apply"] or (name in ["workstation_status",*TOOLS] and args):
     error={"code":-32602,"message":"Unknown tool or arguments"}
    elif name=="workstation_status":
-    result={"content":[{"type":"text","text":json.dumps({"online":time.monotonic()-last.get(pid,0)<35,"paired":True})}]}
+    result={"content":[{"type":"text","text":json.dumps({"online":time.monotonic()-last.get(pid,0)<35,"paired":True,"connection_id":pid[:8]})}]}
    else:
     key=secrets.token_hex(16)
     task={"pid":pid,"event":threading.Event(),"reply":None}
