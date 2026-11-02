@@ -1,0 +1,122 @@
+"""OAuth protected front-end for the private Avena Electrical MCP relay (port 18728)."""
+import html,json,os,re,time,urllib.error,urllib.request
+from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
+from urllib.parse import parse_qs,urlencode,urlsplit
+import oauth_core as auth
+
+BACKEND="http://127.0.0.1:18727/mcp"
+INTERNAL=os.environ["AVENA_MCP_CLIENT_TOKEN"]
+META=auth.BASE+"/.well-known/oauth-protected-resource"
+tries={}
+def throttle(ip,limit=7,window=600):
+ t=time.monotonic()
+ arr=[x for x in tries.get(ip,[]) if t-x<window]
+ arr.append(t);tries[ip]=arr
+ return len(arr)<=limit
+class Handler(BaseHTTPRequestHandler):
+ server_version="AvenaElectricalOAuth/0.5";sys_version=""
+ def log_message(self,*args):pass
+ def reply(self,status,value=None,extra=None,ctype="application/json"):
+  data=(json.dumps(value,ensure_ascii=False).encode() if isinstance(value,(dict,list)) else value.encode() if isinstance(value,str) else value or b"")
+  self.send_response(status)
+  self.send_header("Content-Type",ctype)
+  self.send_header("Cache-Control","no-store")
+  self.send_header("X-Content-Type-Options","nosniff")
+  self.send_header("Content-Length",str(len(data)))
+  for k,v in (extra or {}).items():self.send_header(k,v)
+  self.end_headers()
+  if data and self.command!="HEAD":self.wfile.write(data)
+ def bad(self,detail,code=400):return self.reply(code,{"error":"invalid_request","error_description":detail})
+ def challenge(self):
+  self.reply(401,{"error":"unauthorized","error_description":"OAuth sign-in required"},{"WWW-Authenticate":'Bearer resource_metadata="'+META+'", scope="cad:read"'})
+ def input(self,form=False):
+  try:
+   n=int(self.headers.get("Content-Length","0"))
+   if not 0<n<=262144:return None
+   raw=self.rfile.read(n)
+   if form:
+    d=parse_qs(raw.decode(),max_num_fields=24,keep_blank_values=True)
+    return {k:v[0] for k,v in d.items()}
+   d=json.loads(raw);return d if isinstance(d,dict) else None
+  except (ValueError,UnicodeError,TypeError):return None
+ def oauth_form(self,p,warning=""):
+  names=("client_id","redirect_uri","response_type","scope","state","code_challenge","code_challenge_method","resource")
+  hidden="".join('<input type="hidden" name="'+k+'" value="'+html.escape(str(p.get(k,"")),quote=True)+'">' for k in names)
+  page="""<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Avena Electrical — اتصال امن ChatGPT</title><style>
+body{margin:0;background:#0b1320;color:#eff7ff;font:16px/1.8 Tahoma,Arial,sans-serif;min-height:100vh;display:grid;place-items:center}
+main{box-sizing:border-box;max-width:460px;width:94vw;padding:35px;border-radius:20px;background:#14243a;border:1px solid #34506d}
+h1{font-size:25px;margin:0 0 10px}p{color:#b9cadd}label{display:block;margin:20px 0 4px}
+input{box-sizing:border-box;background:#0a1625;color:white;border:1px solid #5e7693;padding:14px;width:100%;border-radius:10px}
+button{display:block;margin-top:20px;width:100%;padding:14px;border:0;border-radius:10px;background:#35d3c2;color:#06212b;font-weight:bold;cursor:pointer}
+small{color:#96b4cf}.error{color:#ff8a8a}</style><main><h1>آونا الکتریکال</h1>
+<p>برای اتصال ChatGPT به نقشه‌های AutoCAD، دسترسی <b>فقط خواندنی</b> را با رمز اختصاصی خود تأیید کن.</p>"""
+  if warning:page+='<p class="error">'+html.escape(warning)+'</p>'
+  page+='<form method="post" action="/oauth/authorize">'+hidden+'<label>رمز اتصال آونا</label><input type="password" name="password" required autocomplete="off"><button type="submit">تأیید اتصال</button></form><p><small>رمز را فقط در این صفحه HTTPS وارد کن. این سرویس تغییری روی نقشه‌ها اعمال نمی‌کند.</small></p></main>'
+  self.reply(200,page,{"Referrer-Policy":"no-referrer"},"text/html; charset=utf-8")
+ def do_GET(self):
+  path=urlsplit(self.path).path
+  if path in ("/.well-known/oauth-protected-resource","/.well-known/oauth-protected-resource/mcp"):
+   return self.reply(200,{"resource":auth.RESOURCE,"authorization_servers":[auth.ISSUER],"scopes_supported":["cad:read","offline_access"]})
+  if path=="/.well-known/oauth-authorization-server":
+   return self.reply(200,{"issuer":auth.ISSUER,"authorization_endpoint":auth.BASE+"/oauth/authorize","token_endpoint":auth.BASE+"/oauth/token","registration_endpoint":auth.BASE+"/oauth/register","response_types_supported":["code"],"grant_types_supported":["authorization_code","refresh_token"],"token_endpoint_auth_methods_supported":["none"],"code_challenge_methods_supported":["S256"],"authorization_response_iss_parameter_supported":True,"scopes_supported":["cad:read","offline_access"]})
+  if path=="/oauth/authorize":
+   query={k:v[0] for k,v in parse_qs(urlsplit(self.path).query,keep_blank_values=True).items()}
+   error=auth.validate(query)
+   return self.bad(error) if error else self.oauth_form(query)
+  if path=="/mcp":
+   if not auth.verify(self.headers.get("Authorization","")):return self.challenge()
+   return self.reply(405,{"error":"method_not_allowed"})
+  return self.reply(404,{"error":"not_found"})
+ def do_POST(self):
+  path=urlsplit(self.path).path
+  if path=="/oauth/register":
+   if not throttle("reg:"+self.client_address[0],20,3600):return self.bad("rate_limit",429)
+   p=self.input()
+   if p is None:return self.bad("invalid_metadata")
+   data,error=auth.register(p)
+   return self.reply(400,{"error":error}) if error else self.reply(201,data)
+  if path=="/oauth/authorize":
+   p=self.input(form=True)
+   if not p:return self.bad("missing_fields")
+   error=auth.validate(p)
+   if error:return self.bad(error)
+   if not throttle("login:"+self.client_address[0]):return self.bad("too_many_attempts",429)
+   if not auth.valid_pass(p.get("password","")):return self.oauth_form(p,"رمز صحیح نیست.")
+   code=auth.issue_code(p)
+   redirect=p["redirect_uri"]+"?"+urlencode({"code":code,"state":p.get("state",""),"iss":auth.ISSUER})
+   return self.reply(302,extra={"Location":redirect})
+  if path=="/oauth/token":
+   p=self.input(form=True)
+   if not p:return self.bad("invalid_token_request")
+   result,error=auth.exchange(p)
+   return self.reply(400,{"error":error}) if error else self.reply(200,result)
+  if path=="/mcp":
+   if not auth.verify(self.headers.get("Authorization","")):return self.challenge()
+   origin=self.headers.get("Origin")
+   if origin and origin not in ("https://chatgpt.com","https://chat.openai.com"):return self.bad("invalid_origin",403)
+   raw_len=self.headers.get("Content-Length")
+   try:
+    n=int(raw_len or 0)
+    if not 0<n<=262144: return self.bad("invalid_body_size")
+    body=self.rfile.read(n)
+    request=json.loads(body)
+    if not isinstance(request,dict) or request.get("jsonrpc")!="2.0":return self.bad("invalid_jsonrpc")
+   except (ValueError,UnicodeError):return self.bad("invalid_json")
+   headers={"Content-Type":"application/json","Accept":"application/json, text/event-stream","Authorization":"Bearer "+INTERNAL}
+   if self.headers.get("MCP-Protocol-Version"):headers["MCP-Protocol-Version"]=self.headers["MCP-Protocol-Version"]
+   try:
+    req=urllib.request.Request(BACKEND,body,headers,method="POST")
+    with urllib.request.urlopen(req,timeout=70) as response:
+     output=response.read(4194304)
+     return self.reply(response.status,output,ctype=response.headers.get("Content-Type","application/json"))
+   except urllib.error.HTTPError as error:
+    return self.reply(error.code,error.read(2048))
+   except (TimeoutError,OSError):
+    return self.reply(502,{"error":"internal_mcp_gateway_unavailable"})
+  return self.reply(404,{"error":"not_found"})
+ def do_HEAD(self):return self.do_GET()
+def serve():
+ auth.init()
+ ThreadingHTTPServer(("127.0.0.1",int(os.environ.get("AVENA_OAUTH_PORT","18728"))),Handler).serve_forever()
+if __name__=="__main__":serve()
