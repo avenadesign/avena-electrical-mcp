@@ -35,7 +35,7 @@ class H(BaseHTTPRequestHandler):
    if not self.ok(C):return self.write(401,{'error':'unauthorized'})
    return self.write(405,{'error':'POST-only MCP'})
   if self.path=='/health':
-   if not self.ok(C):return self.write(401,{'error':'unauthorized'})
+   if not agent_authorized(self.headers.get('Authorization','')):return self.write(401,{'error':'unauthorized'})
    return self.write(200,{'ok':True,'agent_online':time.monotonic()-LAST[0]<40})
   return self.write(404,{})
  def do_POST(self):
