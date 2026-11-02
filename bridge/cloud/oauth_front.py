@@ -16,6 +16,7 @@ def throttle(ip,limit=7,window=600):
 class Handler(BaseHTTPRequestHandler):
  server_version="AvenaElectricalOAuth/0.5";sys_version=""
  def log_message(self,*args):pass
+ def ip(self):return self.headers.get("X-Real-IP",self.client_address[0])
  def reply(self,status,value=None,extra=None,ctype="application/json"):
   data=(json.dumps(value,ensure_ascii=False).encode() if isinstance(value,(dict,list)) else value.encode() if isinstance(value,str) else value or b"")
   self.send_response(status)
@@ -86,7 +87,7 @@ small{color:#91a9c3}a{color:#35d3c2}</style><main>"""
  def do_POST(self):
   path=urlsplit(self.path).path
   if path=="/connect":
-   if not throttle("phone:"+self.client_address[0],6,3600):return self.bad("rate_limit",429)
+   if not throttle("phone:"+self.ip(),6,3600):return self.bad("rate_limit",429)
    p=self.input(form=True)
    if not p:return self.bad("invalid_mobile")
    try:code=auth.new_pair(p.get("mobile",""))
@@ -95,13 +96,13 @@ small{color:#91a9c3}a{color:#35d3c2}</style><main>"""
    page=self.pairing_html('<h1>کد اتصال آماده است</h1><p>این کد تا زمان لغو دستی معتبر خواهد ماند. آن را در برنامه آونا ویندوز و ورود ChatGPT استفاده کن:</p><strong>'+html.escape(code)+'</strong><p><small>کد را همین حالا ذخیره کن؛ این صفحه دوباره آن را نمایش نمی‌دهد.</small></p><a href="/connect">ساخت کد برای دستگاه دیگر</a>')
    return self.reply(201,page,ctype="text/html; charset=utf-8")
   if path=="/api/device/activate":
-   if not throttle("activate:"+self.client_address[0],12,3600):return self.bad("rate_limit",429)
+   if not throttle("activate:"+self.ip(),12,3600):return self.bad("rate_limit",429)
    p=self.input()
    if not p:return self.bad("invalid_activation")
    token,error=auth.activate_device(p.get("activation_code",""),p.get("device_id",""))
    return self.reply(409 if error=="already_activated_on_other_device" else 401,{"error":error}) if error else self.reply(200,token)
   if path=="/oauth/register":
-   if not throttle("reg:"+self.client_address[0],20,3600):return self.bad("rate_limit",429)
+   if not throttle("reg:"+self.ip(),20,3600):return self.bad("rate_limit",429)
    p=self.input()
    if p is None:return self.bad("invalid_metadata")
    data,error=auth.register(p)
@@ -111,7 +112,7 @@ small{color:#91a9c3}a{color:#35d3c2}</style><main>"""
    if not p:return self.bad("missing_fields")
    error=auth.validate(p)
    if error:return self.bad(error)
-   if not throttle("login:"+self.client_address[0]):return self.bad("too_many_attempts",429)
+   if not throttle("login:"+self.ip()):return self.bad("too_many_attempts",429)
    pair=auth.lookup_pair(p.get("activation_code",""))
    if pair is None:return self.oauth_form(p,"کد فعال‌سازی معتبر نیست.")
    code=auth.issue_code(p,pair["id"])
