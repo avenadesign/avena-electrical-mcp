@@ -42,7 +42,7 @@ class Handler(BaseHTTPRequestHandler):
   except (ValueError,UnicodeError,TypeError):return None
  def oauth_form(self,p,warning=""):
   names=("client_id","redirect_uri","response_type","scope","state","code_challenge","code_challenge_method","resource")
-  hidden="".join('<input type="hidden" name="'+k+'" value="'+html.escape(str(p.get(k,"")),quote=True)+'">' for k in names)
+  hidden="".join('<input type="hidden" name="'+k+'" value="'+html.escape(str(p[k]),quote=True)+'">' for k in names if k in p and str(p[k])!="")
   page="""<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Avena Electrical — اتصال امن ChatGPT</title><style>
 body{margin:0;background:#0b1320;color:#eff7ff;font:16px/1.8 Tahoma,Arial,sans-serif;min-height:100vh;display:grid;place-items:center}
@@ -74,7 +74,7 @@ small{color:#91a9c3}a{color:#35d3c2}</style><main>"""
    return self.reply(200,content,ctype="text/html; charset=utf-8")
   if path in ("/.well-known/oauth-protected-resource","/.well-known/oauth-protected-resource/mcp"):
    return self.reply(200,{"resource":auth.RESOURCE,"authorization_servers":[auth.ISSUER],"scopes_supported":["cad:read","offline_access"]})
-  if path=="/.well-known/oauth-authorization-server":
+  if path in ("/.well-known/oauth-authorization-server","/.well-known/oauth-authorization-server/mcp"):
    return self.reply(200,{"issuer":auth.ISSUER,"authorization_endpoint":auth.BASE+"/oauth/authorize","token_endpoint":auth.BASE+"/oauth/token","registration_endpoint":auth.BASE+"/oauth/register","response_types_supported":["code"],"grant_types_supported":["authorization_code","refresh_token"],"token_endpoint_auth_methods_supported":["none"],"code_challenge_methods_supported":["S256"],"authorization_response_iss_parameter_supported":True,"scopes_supported":["cad:read","offline_access"]})
   if path=="/oauth/authorize":
    query={k:v[0] for k,v in parse_qs(urlsplit(self.path).query,keep_blank_values=True).items()}
@@ -111,10 +111,11 @@ small{color:#91a9c3}a{color:#35d3c2}</style><main>"""
    p=self.input(form=True)
    if not p:return self.bad("missing_fields")
    error=auth.validate(p)
-   if error:return self.bad(error)
-   if not throttle("login:"+self.ip()):return self.bad("too_many_attempts",429)
+   if error:return self.oauth_form(p,"پارامترهای اتصال معتبر نیستند؛ اتصال را دوباره از ChatGPT آغاز کن. ("+error+")")
    pair=auth.lookup_pair(p.get("activation_code",""))
-   if pair is None:return self.oauth_form(p,"کد فعال‌سازی معتبر نیست.")
+   if pair is None:
+    if not throttle("login:"+self.ip()):return self.oauth_form(p,"تلاش‌های ناموفق زیاد است. چند دقیقه دیگر دوباره امتحان کن.")
+    return self.oauth_form(p,"کد فعال‌سازی معتبر نیست؛ کد کامل را از صفحه دریافت کد کپی کن.")
    code=auth.issue_code(p,pair["id"])
    redirect=p["redirect_uri"]+"?"+urlencode({"code":code,"state":p.get("state",""),"iss":auth.ISSUER})
    return self.reply(302,extra={"Location":redirect})
