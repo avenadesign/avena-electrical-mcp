@@ -60,7 +60,7 @@ def normalize_code(code):
  return str(code).upper().replace("-","").replace(" ","").strip()
 def normalize_phone(phone):
  phone=str(phone).translate(str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩","01234567890123456789"))
- phone=re.sub(r"[\\s\\-()]+","",phone)
+ phone=phone.replace(" ","").replace("-","").replace("(","").replace(")","")
  if phone.startswith("+98"):phone="0"+phone[3:]
  elif phone.startswith("98") and len(phone)==12:phone="0"+phone[2:]
  if not re.fullmatch(r"09\\d{9}",phone):raise ValueError("Invalid Iranian mobile number")
