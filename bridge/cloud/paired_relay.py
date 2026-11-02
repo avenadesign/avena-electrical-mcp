@@ -1,6 +1,7 @@
-"""Avena Electrical v0.6: authenticated multi-device read-only MCP relay."""
+"""Avena Electrical v0.8: paired, read-only queries plus approved additive CAD drawing."""
 import hashlib,json,os,queue,secrets,sqlite3,threading,time,hmac
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
+from draft_schema import validate,preview,SCHEMA
 
 MCP_SECRET=os.environ["AVENA_MCP_CLIENT_TOKEN"]
 DB=os.environ.get("AVENA_OAUTH_DB","/opt/avena-elc/state/oauth.sqlite")
@@ -75,13 +76,29 @@ class H(BaseHTTPRequestHandler):
   if mid is None:return self.send(202)
   result=None;error=None
   if method=="initialize":
-   result={"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"Avena Electrical","version":"0.6.0"}}
+   result={"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"Avena Electrical","version":"0.8.0"}}
   elif method=="ping":result={}
   elif method=="tools/list":
-   result={"tools":[{"name":name,"description":"Read-only AutoCAD query","inputSchema":{"type":"object","properties":{},"additionalProperties":False},"annotations":{"readOnlyHint":True,"destructiveHint":False}} for name in ["workstation_status",*TOOLS]]}
+   result={"tools":[
+     *[{"name":name,"description":"Read-only AutoCAD query","inputSchema":{"type":"object","properties":{},"additionalProperties":False},"annotations":{"readOnlyHint":True,"destructiveHint":False}} for name in ["workstation_status",*TOOLS]],
+     {"name":"autocad_drawing_preview","description":"Validate and summarize a plan to draw lines, polylines, circles, rectangles, text or existing blocks in the active DWG. No DWG changes.","inputSchema":{"type":"object","required":["operations"],"additionalProperties":False,"properties":{"operations":SCHEMA}},"annotations":{"readOnlyHint":True,"destructiveHint":False}},
+     {"name":"autocad_drawing_apply","description":"DRAW the supplied additive operations in the active AutoCAD DWG. Local Windows human confirmation is REQUIRED before editing. No save or deletion is performed.","inputSchema":{"type":"object","required":["operations"],"additionalProperties":False,"properties":{"operations":SCHEMA}},"annotations":{"readOnlyHint":False,"destructiveHint":False,"idempotentHint":False}}
+   ]}
   elif method=="tools/call":
    p=msg.get("params") or {};name=p.get("name")
-   if name not in ["workstation_status",*TOOLS] or p.get("arguments") not in ({},None):
+   args=p.get("arguments") or {}
+   plan=None
+   if name in ("autocad_drawing_preview","autocad_drawing_apply"):
+    try:
+     if not isinstance(args,dict) or set(args)!={"operations"}:raise ValueError("Expected operations array")
+     plan=validate(args["operations"])
+    except ValueError as exc:
+     error={"code":-32602,"message":str(exc)}
+   if error:
+    pass
+   elif name=="autocad_drawing_preview":
+    result={"content":[{"type":"text","text":json.dumps(preview(plan),ensure_ascii=False)}]}
+   elif name not in ["workstation_status",*TOOLS,"autocad_drawing_apply"] or (name in ["workstation_status",*TOOLS] and args):
     error={"code":-32602,"message":"Unknown tool or arguments"}
    elif name=="workstation_status":
     result={"content":[{"type":"text","text":json.dumps({"online":time.monotonic()-last.get(pid,0)<35,"paired":True})}]}
@@ -92,8 +109,8 @@ class H(BaseHTTPRequestHandler):
      waiting[key]=task
      q=queues.setdefault(pid,queue.Queue(maxsize=20))
     try:
-     q.put_nowait({"id":key,"tool":TOOLS[name],"arguments":{}})
-     task["event"].wait(45)
+     q.put_nowait({"id":key,"tool":"__avena_draw_batch__" if name=="autocad_drawing_apply" else TOOLS[name],"arguments":{"operations":plan} if name=="autocad_drawing_apply" else {}})
+     task["event"].wait(90 if name=="autocad_drawing_apply" else 45)
      answer=task["reply"] or {"ok":False,"error":"agent_offline"}
      result={"content":[{"type":"text","text":json.dumps(answer,ensure_ascii=False)}],"isError":not answer.get("ok",False)}
     except queue.Full:result={"content":[{"type":"text","text":"Agent busy"}],"isError":True}
