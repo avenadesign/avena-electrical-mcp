@@ -72,6 +72,31 @@ print("AVENA_RUNTIME|%d|%d|%d|64" % sys.version_info[:3])
     assert target in s
     s=s.replace(target,'        self.code.set("")\n        self.info.configure(text="لایسنس تأیید شد؛ ورود به پنل آونا ...",fg=COLORS["accent"])\n        self.window.grab_release()',1)
     gate.write_text(s,encoding="utf-8")
+    tests=new/"tests/test_windows_launcher.py"
+    checks=tests.read_text(encoding="utf-8")
+    old='    assert "sys.version_info >= (3, 11)" in text\n    assert "sys.maxsize > 2**32" in text'
+    new='    probe = (ROOT / "scripts" / "python_probe.py").read_text(encoding="utf-8")\n    assert "sys.version_info < (3, 11)" in probe\n    assert "sys.maxsize <= 2**32" in probe\n    assert "python_probe.py" in text'
+    assert old in checks
+    checks=checks.replace(old,new,1)
+    checks+='''
+
+def test_windows_probe_uses_script_not_interpreter_c_strings():
+    import subprocess
+    import sys
+    probe=ROOT / "scripts" / "python_probe.py"
+    result=subprocess.run([sys.executable,"-B",str(probe)],capture_output=True,text=True,check=True)
+    assert result.stdout.strip().startswith("AVENA_RUNTIME|")
+    common=(ROOT / "scripts" / "windows_common.ps1").read_text(encoding="utf-8")
+    assert "python_probe.py" in common
+    assert " -c " not in common
+
+def test_existing_venv_can_reuse_and_preserve_bad_one():
+    common=(ROOT / "scripts" / "windows_common.ps1").read_text(encoding="utf-8")
+    assert "Reusing compatible virtual environment" in common
+    assert "Move-Item -LiteralPath $venv -Destination $previous" in common
+    assert "Remove-Item -LiteralPath $venv" not in common
+'''
+    tests.write_text(checks,encoding="utf-8")
     version=new/"app/__init__.py"
     version.write_text(version.read_text(encoding="utf-8").replace("0.9.0","0.9.1"),encoding="utf-8")
     (new/"README_HOTFIX_FA.txt").write_text("""Avena Electrical 0.9.1
