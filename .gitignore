@@ -1,0 +1,15 @@
+.build/
+.venv/
+dist/
+build/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.spec
+*.log
+*.dwg
+*.bak
+*.tmp
+.env
+*.ttf
+*.woff2
