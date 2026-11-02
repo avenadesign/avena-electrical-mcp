@@ -63,7 +63,7 @@ def normalize_phone(phone):
  phone=phone.replace(" ","").replace("-","").replace("(","").replace(")","")
  if phone.startswith("+98"):phone="0"+phone[3:]
  elif phone.startswith("98") and len(phone)==12:phone="0"+phone[2:]
- if not re.fullmatch(r"09\\d{9}",phone):raise ValueError("Invalid Iranian mobile number")
+ if not re.fullmatch(r"09[0-9]{9}",phone):raise ValueError("Invalid Iranian mobile number")
  return phone
 def lookup_pair(code):
  raw=normalize_code(code)
