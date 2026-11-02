@@ -82,7 +82,7 @@ class H(BaseHTTPRequestHandler):
    result={"tools":[
      *[{"name":name,"description":"Read-only AutoCAD query","inputSchema":{"type":"object","properties":{},"additionalProperties":False},"annotations":{"readOnlyHint":True,"destructiveHint":False}} for name in ["workstation_status",*TOOLS]],
      {"name":"autocad_drawing_preview","description":"Validate and summarize a plan to draw lines, polylines, circles, rectangles, text or existing blocks in the active DWG. No DWG changes.","inputSchema":{"type":"object","required":["operations"],"additionalProperties":False,"properties":{"operations":SCHEMA}},"annotations":{"readOnlyHint":True,"destructiveHint":False}},
-     {"name":"autocad_drawing_apply","description":"DRAW the supplied additive operations in the active AutoCAD DWG. Local Windows human confirmation is REQUIRED before editing. No save or deletion is performed.","inputSchema":{"type":"object","required":["operations"],"additionalProperties":False,"properties":{"operations":SCHEMA}},"annotations":{"readOnlyHint":False,"destructiveHint":False,"idempotentHint":False}}
+     {"name":"autocad_drawing_apply","description":"DRAW the supplied additive operations in the active AutoCAD DWG. Local Windows human confirmation is REQUIRED before editing. Maximum 10 shapes per approval. No automatic save or deletion.","inputSchema":{"type":"object","required":["operations"],"additionalProperties":False,"properties":{"operations":SCHEMA}},"annotations":{"readOnlyHint":False,"destructiveHint":False,"idempotentHint":False}}
    ]}
   elif method=="tools/call":
    p=msg.get("params") or {};name=p.get("name")
@@ -110,7 +110,7 @@ class H(BaseHTTPRequestHandler):
      q=queues.setdefault(pid,queue.Queue(maxsize=20))
     try:
      q.put_nowait({"id":key,"tool":"__avena_draw_batch__" if name=="autocad_drawing_apply" else TOOLS[name],"arguments":{"operations":plan} if name=="autocad_drawing_apply" else {}})
-     task["event"].wait(90 if name=="autocad_drawing_apply" else 45)
+     task["event"].wait(65 if name=="autocad_drawing_apply" else 45)
      answer=task["reply"] or {"ok":False,"error":"agent_offline"}
      result={"content":[{"type":"text","text":json.dumps(answer,ensure_ascii=False)}],"isError":not answer.get("ok",False)}
     except queue.Full:result={"content":[{"type":"text","text":"Agent busy"}],"isError":True}
