@@ -50,12 +50,27 @@ h1{font-size:25px;margin:0 0 10px}p{color:#b9cadd}label{display:block;margin:20p
 input{box-sizing:border-box;background:#0a1625;color:white;border:1px solid #5e7693;padding:14px;width:100%;border-radius:10px}
 button{display:block;margin-top:20px;width:100%;padding:14px;border:0;border-radius:10px;background:#35d3c2;color:#06212b;font-weight:bold;cursor:pointer}
 small{color:#96b4cf}.error{color:#ff8a8a}</style><main><h1>آونا الکتریکال</h1>
-<p>برای اتصال ChatGPT به نقشه‌های AutoCAD، دسترسی <b>فقط خواندنی</b> را با رمز اختصاصی خود تأیید کن.</p>"""
+<p>برای اتصال ChatGPT به نقشه‌های AutoCAD، دسترسی <b>فقط خواندنی</b> را با کد اتصال دریافتی از elc.avenaai.ir/connect تأیید کن.</p>"""
   if warning:page+='<p class="error">'+html.escape(warning)+'</p>'
-  page+='<form method="post" action="/oauth/authorize">'+hidden+'<label>رمز اتصال آونا</label><input type="password" name="password" required autocomplete="off"><button type="submit">تأیید اتصال</button></form><p><small>رمز را فقط در این صفحه HTTPS وارد کن. این سرویس تغییری روی نقشه‌ها اعمال نمی‌کند.</small></p></main>'
+  page+='<form method="post" action="/oauth/authorize">'+hidden+'<label>کد ۲۰ کاراکتری اتصال</label><input type="text" name="activation_code" required autocomplete="off" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX"><button type="submit">تأیید اتصال</button></form><p><small>رمز را فقط در این صفحه HTTPS وارد کن. این سرویس تغییری روی نقشه‌ها اعمال نمی‌کند.</small></p></main>'
   self.reply(200,page,{"Referrer-Policy":"no-referrer"},"text/html; charset=utf-8")
+ def pairing_html(self,body):
+  page="""<!doctype html><html lang="fa" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>فعال‌سازی Avena Electrical</title><style>body{margin:0;background:#0b1320;color:#edf6ff;font:16px/1.9 Tahoma,Arial,sans-serif;min-height:100vh;display:grid;place-items:center}
+main{box-sizing:border-box;width:min(94vw,470px);padding:32px;background:#14243a;border:1px solid #34506d;border-radius:20px}
+h1{margin:0;font-size:24px}p{color:#b9cadd}label{display:block;margin:15px 0 4px}
+input{box-sizing:border-box;background:#0a1625;color:#fff;border:1px solid #5e7693;padding:14px;width:100%;border-radius:10px;font:inherit;direction:ltr;text-align:left}
+button{display:block;width:100%;padding:14px;margin-top:20px;border:0;border-radius:10px;background:#35d3c2;color:#06212b;font:inherit;font-weight:bold;cursor:pointer}
+strong{display:block;border:1px dashed #35d3c2;color:#35d3c2;padding:15px;border-radius:10px;font:bold 19px Consolas,monospace;text-align:center;direction:ltr;overflow-wrap:anywhere}
+small{color:#91a9c3}a{color:#35d3c2}</style><main>"""
+  return page+body+"</main>"
  def do_GET(self):
   path=urlsplit(self.path).path
+  if path=="/connect":
+   content=self.pairing_html("""<h1>کد فعال‌سازی آونا الکتریکال</h1><p>شماره موبایلت را وارد کن تا همین حالا کد اتصال بلندمدت بگیری. فعلاً بدون پیامک، OTP و اشتراک.</p>
+<form action="/connect" method="post"><label>شماره موبایل</label><input type="tel" name="mobile" placeholder="09123456789" required maxlength="16"><button>دریافت کد اتصال</button></form>
+<p><small>شماره در این نسخه تأیید نمی‌شود. کد را مثل رمز نگه دار؛ با واردکردن مجدد شماره قابل بازیابی نیست و تا لغو دستی معتبر است.</small></p>""")
+   return self.reply(200,content,ctype="text/html; charset=utf-8")
   if path in ("/.well-known/oauth-protected-resource","/.well-known/oauth-protected-resource/mcp"):
    return self.reply(200,{"resource":auth.RESOURCE,"authorization_servers":[auth.ISSUER],"scopes_supported":["cad:read","offline_access"]})
   if path=="/.well-known/oauth-authorization-server":
@@ -70,6 +85,21 @@ small{color:#96b4cf}.error{color:#ff8a8a}</style><main><h1>آونا الکتری
   return self.reply(404,{"error":"not_found"})
  def do_POST(self):
   path=urlsplit(self.path).path
+  if path=="/connect":
+   if not throttle("phone:"+self.client_address[0],6,3600):return self.bad("rate_limit",429)
+   p=self.input(form=True)
+   if not p:return self.bad("invalid_mobile")
+   try:code=auth.new_pair(p.get("mobile",""))
+   except ValueError:
+    return self.reply(400,self.pairing_html('<h1>شماره نامعتبر</h1><p>شماره باید ۱۱ رقم و با ۰۹ شروع شود.</p><a href="/connect">بازگشت</a>'),ctype="text/html; charset=utf-8")
+   page=self.pairing_html('<h1>کد اتصال آماده است</h1><p>این کد تا زمان لغو دستی معتبر خواهد ماند. آن را در برنامه آونا ویندوز و ورود ChatGPT استفاده کن:</p><strong>'+html.escape(code)+'</strong><p><small>کد را همین حالا ذخیره کن؛ این صفحه دوباره آن را نمایش نمی‌دهد.</small></p><a href="/connect">ساخت کد برای دستگاه دیگر</a>')
+   return self.reply(201,page,ctype="text/html; charset=utf-8")
+  if path=="/api/device/activate":
+   if not throttle("activate:"+self.client_address[0],12,3600):return self.bad("rate_limit",429)
+   p=self.input()
+   if not p:return self.bad("invalid_activation")
+   token,error=auth.activate_device(p.get("activation_code",""),p.get("device_id",""))
+   return self.reply(409 if error=="already_activated_on_other_device" else 401,{"error":error}) if error else self.reply(200,token)
   if path=="/oauth/register":
    if not throttle("reg:"+self.client_address[0],20,3600):return self.bad("rate_limit",429)
    p=self.input()
@@ -82,8 +112,9 @@ small{color:#96b4cf}.error{color:#ff8a8a}</style><main><h1>آونا الکتری
    error=auth.validate(p)
    if error:return self.bad(error)
    if not throttle("login:"+self.client_address[0]):return self.bad("too_many_attempts",429)
-   if not auth.valid_pass(p.get("password","")):return self.oauth_form(p,"رمز صحیح نیست.")
-   code=auth.issue_code(p)
+   pair=auth.lookup_pair(p.get("activation_code",""))
+   if pair is None:return self.oauth_form(p,"کد فعال‌سازی معتبر نیست.")
+   code=auth.issue_code(p,pair["id"])
    redirect=p["redirect_uri"]+"?"+urlencode({"code":code,"state":p.get("state",""),"iss":auth.ISSUER})
    return self.reply(302,extra={"Location":redirect})
   if path=="/oauth/token":
@@ -92,7 +123,8 @@ small{color:#96b4cf}.error{color:#ff8a8a}</style><main><h1>آونا الکتری
    result,error=auth.exchange(p)
    return self.reply(400,{"error":error}) if error else self.reply(200,result)
   if path=="/mcp":
-   if not auth.verify(self.headers.get("Authorization","")):return self.challenge()
+   pair=auth.pair_from_oauth(self.headers.get("Authorization",""))
+   if pair is None:return self.challenge()
    origin=self.headers.get("Origin")
    if origin and origin not in ("https://chatgpt.com","https://chat.openai.com"):return self.bad("invalid_origin",403)
    raw_len=self.headers.get("Content-Length")
@@ -103,7 +135,7 @@ small{color:#96b4cf}.error{color:#ff8a8a}</style><main><h1>آونا الکتری
     request=json.loads(body)
     if not isinstance(request,dict) or request.get("jsonrpc")!="2.0":return self.bad("invalid_jsonrpc")
    except (ValueError,UnicodeError):return self.bad("invalid_json")
-   headers={"Content-Type":"application/json","Accept":"application/json, text/event-stream","Authorization":"Bearer "+INTERNAL}
+   headers={"Content-Type":"application/json","Accept":"application/json, text/event-stream","Authorization":"Bearer "+INTERNAL,"X-Avena-Pair-ID":pair["id"]}
    if self.headers.get("MCP-Protocol-Version"):headers["MCP-Protocol-Version"]=self.headers["MCP-Protocol-Version"]
    try:
     req=urllib.request.Request(BACKEND,body,headers,method="POST")
