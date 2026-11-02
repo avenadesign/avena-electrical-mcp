@@ -75,9 +75,9 @@ print("AVENA_RUNTIME|%d|%d|%d|64" % sys.version_info[:3])
     tests=new/"tests/test_windows_launcher.py"
     checks=tests.read_text(encoding="utf-8")
     old='    assert "sys.version_info >= (3, 11)" in text\n    assert "sys.maxsize > 2**32" in text'
-    new='    probe = (ROOT / "scripts" / "python_probe.py").read_text(encoding="utf-8")\n    assert "sys.version_info < (3, 11)" in probe\n    assert "sys.maxsize <= 2**32" in probe\n    assert "python_probe.py" in text'
+    replacement_checks='    probe = (ROOT / "scripts" / "python_probe.py").read_text(encoding="utf-8")\n    assert "sys.version_info < (3, 11)" in probe\n    assert "sys.maxsize <= 2**32" in probe\n    assert "python_probe.py" in text'
     assert old in checks
-    checks=checks.replace(old,new,1)
+    checks=checks.replace(old,replacement_checks,1)
     checks+='''
 
 def test_windows_probe_uses_script_not_interpreter_c_strings():
