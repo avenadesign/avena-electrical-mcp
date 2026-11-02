@@ -32,3 +32,21 @@ The standalone Python bridge `bridge/windows/stdlib_agent.py` requires Python 3.
 - **Not yet verified:** the complete ChatGPT browser OAuth callback on a live account and COM tools on the actual Windows AutoCAD seat.
 
 Source originates from AutoCAD MCP Pro (MIT) as documented in repository legal notices; the site/product uses Avena Design branding.
+
+
+## v0.8.1 approved AutoCAD drawing (November 2026)
+
+The cloud MCP gateway adds:
+- `autocad_drawing_preview`: validate up to 25 additive drawing operations without touching DWG.
+- `autocad_drawing_apply`: submit up to **10** line, rectangle, polyline, circle, text or existing block-reference operations to the paired Windows workstation; a **local Windows confirmation dialog must explicitly approve each batch**.
+
+Desktop upgrade (source installation):
+1. Download `https://elc.avenaai.ir/downloads/AvenaElectrical-v0.8.1-Draw-Hotfix.zip`
+2. Extract the four patch files into the existing Avena Electrical folder beside `RUN.bat`.
+3. Run `INSTALL_DRAW.bat`, restart the Avena GUI with `RUN.bat`, and confirm the new drawing toggle is on.
+4. Open an existing saved DWG inside the configured allowed folder and keep AutoCAD 2026/2027 running.
+5. Connect the existing license-paired Windows agent and ChatGPT OAuth account. Preview geometry first, then apply; approve on the Windows desktop.
+
+This version **never** performs deletion, arbitrary AutoCAD commands, DWG open/save, or unconfirmed changes. All units match the open DWG. A failure may leave partially created *unsaved* objects; there is no automatic rollback. The native AutoCAD Electrical circuit/project database and smart electrical symbols are not yet supported.
+
+**Validation:** desktop overlay 90 offline tests; cloud `tools/list`, positive drawing preview and invalid-command rejection passed using a mocked paired MCP caller. Actual AutoCAD COM and OAuth callback on the user's Windows/ChatGPT account are **not yet end-to-end verified**.
