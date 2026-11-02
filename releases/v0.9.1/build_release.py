@@ -60,17 +60,17 @@ print("AVENA_RUNTIME|%d|%d|%d|64" % sys.version_info[:3])
 ''',encoding="utf-8")
     gui=new/"app/gui.py"
     s=gui.read_text(encoding="utf-8")
-    s=s.replace('        self._licensed = False\\n','        self._licensed = False\\n        self.license_label_text=tk.StringVar(value="لایسنس: در انتظار بررسی")\\n',1)
-    s=s.replace('        self._licensed = True\\n        self._cloud_manual_stop','        self._licensed = True\\n        self.license_label_text.set("● لایسنس دستگاه فعال است")\\n        self._cloud_manual_stop',1)
+    s=s.replace('        self._licensed = False\n','        self._licensed = False\n        self.license_label_text=tk.StringVar(value="لایسنس: در انتظار بررسی")\n',1)
+    s=s.replace('        self._licensed = True\n        self._cloud_manual_stop','        self._licensed = True\n        self.license_label_text.set("● لایسنس دستگاه فعال است")\n        self._cloud_manual_stop',1)
     target='        self.text(right,"آونا الکتریکال",20,"text",True).pack(anchor="e")'
     assert target in s
-    s=s.replace(target,target+'\\n        tk.Label(right,textvariable=self.license_label_text,bg=COL["panel"],fg=COL["accent"],font=(self.font,9,"bold")).pack(anchor="e",pady=(3,0))',1)
+    s=s.replace(target,target+'\n        tk.Label(right,textvariable=self.license_label_text,bg=COL["panel"],fg=COL["accent"],font=(self.font,9,"bold")).pack(anchor="e",pady=(3,0))',1)
     gui.write_text(s,encoding="utf-8")
     gate=new/"app/activation_gate.py"
     s=gate.read_text(encoding="utf-8")
-    target='        self.code.set("")\\n        self.window.grab_release()'
+    target='        self.code.set("")\n        self.window.grab_release()'
     assert target in s
-    s=s.replace(target,'        self.code.set("")\\n        self.info.configure(text="لایسنس تأیید شد؛ ورود به پنل آونا ...",fg=COLORS["accent"])\\n        self.window.grab_release()',1)
+    s=s.replace(target,'        self.code.set("")\n        self.info.configure(text="لایسنس تأیید شد؛ ورود به پنل آونا ...",fg=COLORS["accent"])\n        self.window.grab_release()',1)
     gate.write_text(s,encoding="utf-8")
     version=new/"app/__init__.py"
     version.write_text(version.read_text(encoding="utf-8").replace("0.9.0","0.9.1"),encoding="utf-8")
