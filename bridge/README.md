@@ -1,0 +1,1 @@
+Avena Electrical Remote MCP bridge: HTTPS MCP endpoint -> authenticated outbound Windows WebSocket -> local COM-backed MCP. Read-only initial release. Requires separately generated `AVENA_MCP_CLIENT_TOKEN`, `AVENA_AGENT_TOKEN`, and local workstation MCP token. No tokens committed. Live AutoCAD COM validation pending.
