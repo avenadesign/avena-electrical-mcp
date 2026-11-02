@@ -19,7 +19,7 @@ try {
   $env:AVENA_AGENT_TOKEN=Read-Secret 'Cloud agent token'
   $env:AVENA_LOCAL_MCP_TOKEN=Read-Secret 'Local Avena MCP bearer token (new, rotated)'
   if ($env:AVENA_AGENT_TOKEN.Length -lt 40 -or $env:AVENA_LOCAL_MCP_TOKEN.Length -lt 32) { throw 'Token too short.' }
-  & $exe (Join-Path $PSScriptRoot 'agent.py')
+  & $exe (Join-Path $PSScriptRoot 'poll_agent.py')
   if ($LASTEXITCODE -ne 0) { throw 'Agent failed.' }
 } catch { Write-Host $_.Exception.Message -ForegroundColor Red; exit 1 }
 finally { Remove-Item Env:AVENA_AGENT_TOKEN -ErrorAction SilentlyContinue; Remove-Item Env:AVENA_LOCAL_MCP_TOKEN -ErrorAction SilentlyContinue }
