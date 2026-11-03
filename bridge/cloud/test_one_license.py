@@ -1,6 +1,7 @@
 """Regression: one phone, one immutable license, old codes invalid."""
 import os,sqlite3,tempfile,secrets,hashlib,unittest,importlib
 from pathlib import Path
+os.environ.setdefault("AVENA_OAUTH_LOGIN_HASH","test")
 import oauth_core
 from one_license_migration import migrate
 class SingleLicense(unittest.TestCase):
@@ -43,7 +44,7 @@ class SingleLicense(unittest.TestCase):
    CREATE TABLE tokens(hash TEXT PRIMARY KEY,client TEXT,kind TEXT,scopes TEXT,resource TEXT,expire INTEGER,pair_id TEXT);""")
    for i in range(5):
     c.execute("INSERT INTO pairings VALUES(?,?,?,?,?,?,?,?)",
-      (f"{i+1:032x}","09123334455",a.sha("CODE"+str(i)),100+i,0,
+      (f"{i+1:032x}","09123334455",a.sha(a.normalize_code("ABCD-EFGH-JKLM-NPQR-ST2"+str(i+2))),100+i,0,
        f"{i+1:032x}" if i in (1,3) else None,"dev"+str(i) if i in (1,3) else None,
        200+i if i in (1,3) else None))
    c.execute("INSERT INTO tokens VALUES(?,?,?,?,?,?,?)",
@@ -54,8 +55,8 @@ class SingleLicense(unittest.TestCase):
   self.assertEqual(report["retained_connection_ids"],[f"{4:032x}"[:8]])
   self.assertEqual(migrate(str(self.path))["duplicate_licenses_revoked"],0)
   a.init()
-  self.assertEqual(a.backfill_existing_license_code("CODE3"),f"{4:032x}"[:8])
-  self.assertEqual(a.restore_license_code("09123334455"),"CODE3")
+  self.assertEqual(a.backfill_existing_license_code("ABCD-EFGH-JKLM-NPQR-ST25"),f"{4:032x}"[:8])
+  self.assertEqual(a.restore_license_code("09123334455"),"ABCD-EFGH-JKLM-NPQR-ST25")
   self.assertIsNone(a.pair_from_oauth("Bearer test_access")) # stale session stays revoked
   self.assertIsNone(a.lookup_pair("CODE0"))
   with self.assertRaises(a.LicenseAlreadyExists):
