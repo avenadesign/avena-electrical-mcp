@@ -72,17 +72,24 @@ def lookup_pair(code):
  if len(raw)!=20 or any(ch not in ALPHABET for ch in raw):return None
  with connect() as c:
   return c.execute("SELECT * FROM pairings WHERE code_hash=? AND revoked=0",(sha(raw),)).fetchone()
+class LicenseAlreadyExists(ValueError):
+ pass
+
 def new_pair(phone):
  phone=normalize_phone(phone)
- for _ in range(5):
-  raw="".join(secrets.choice(ALPHABET) for _ in range(20))
-  try:
-   with connect() as c:
-    c.execute("INSERT INTO pairings (id,phone,code_hash,created) VALUES (?,?,?,?)",
-       (secrets.token_hex(16),phone,sha(raw),int(time.time())))
-   return "-".join(raw[i:i+4] for i in range(0,20,4))
-  except sqlite3.IntegrityError:pass
- raise RuntimeError("Pairing code collision")
+ with connect() as db:
+  db.execute("BEGIN IMMEDIATE")
+  if db.execute("SELECT pair_id FROM phone_licenses WHERE phone=?",(phone,)).fetchone():
+   raise LicenseAlreadyExists("existing_phone_license")
+  code="".join(secrets.choice(ALPHABET) for _ in range(20))
+  key=secrets.token_hex(16)
+  timestamp=int(time.time())
+  db.execute("INSERT INTO pairings(id,phone,code_hash,created) VALUES(?,?,?,?)",
+             (key,phone,sha(code),timestamp))
+  db.execute("INSERT INTO phone_licenses(phone,pair_id,created) VALUES(?,?,?)",
+             (phone,key,timestamp))
+ return "-".join(code[i:i+4] for i in range(0,20,4))
+
 def activate_device(code,device_id):
  if not re.fullmatch(r"[0-9a-f]{32}",str(device_id)):return None,"invalid_device_id"
  pair=lookup_pair(code)
