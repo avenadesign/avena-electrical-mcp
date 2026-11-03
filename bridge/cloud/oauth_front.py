@@ -70,7 +70,7 @@ small{color:#91a9c3}a{color:#35d3c2}</style><main>"""
   if path=="/connect":
    content=self.pairing_html("""<h1>کد فعال‌سازی آونا الکتریکال</h1><p>شماره موبایلت را وارد کن تا برای آن یک لایسنس ثابت صادر شود. هر شماره فقط یک کد دارد؛ ثبت دوباره کد جدید نمی‌سازد. فعلاً بدون پیامک، OTP و اشتراک.</p>
 <form action="/connect" method="post"><label>شماره موبایل</label><input type="tel" name="mobile" placeholder="09123456789" required maxlength="16"><button>دریافت کد اتصال</button></form>
-<p><small>شماره در این نسخه تأیید نمی‌شود. کد را مثل رمز نگه دار؛ با واردکردن مجدد شماره قابل بازیابی نیست و تا لغو دستی معتبر است.</small></p>""")
+<p><small>شماره در این نسخه تأیید نمی‌شود. در نسخه آزمایشی، واردکردن دوباره شماره همان کد را نمایش می‌دهد؛ تا فعال‌شدن OTP، هر کسی که شماره را بداند می‌تواند کد را ببیند.</small></p>""")
    return self.reply(200,content,ctype="text/html; charset=utf-8")
   if path in ("/.well-known/oauth-protected-resource","/.well-known/oauth-protected-resource/mcp"):
    return self.reply(200,{"resource":auth.RESOURCE,"authorization_servers":[auth.ISSUER],"scopes_supported":["cad:read","offline_access"]})
@@ -92,11 +92,18 @@ small{color:#91a9c3}a{color:#35d3c2}</style><main>"""
    if not p:return self.bad("invalid_mobile")
    try:code=auth.new_pair(p.get("mobile",""))
    except auth.LicenseAlreadyExists:
-    page=self.pairing_html('<h1>این شماره قبلاً ثبت شده است</h1><p>برای هر شماره فقط یک لایسنس دائمی وجود دارد. کد قبلی معتبر است و امکان صدور کد دوم یا تغییر لایسنس وجود ندارد.</p><p><small>فعلاً بازیابی کد بدون احراز مالکیت شماره فعال نیست؛ کد خود را نگه دار.</small></p><a href="/connect">بازگشت</a>')
-    return self.reply(409,page,ctype="text/html; charset=utf-8")
+    try:
+     code=auth.restore_license_code(p.get("mobile",""))
+    except RuntimeError:
+     page=self.pairing_html('<h1>بازیابی کد موجود ممکن نیست</h1><p>شماره قبلاً ثبت شده، اما نسخه قابل‌بازیابی کد قدیمی ثبت نشده است. لایسنس تغییر نکرده؛ برای بازیابی با پشتیبانی آونا تماس بگیر.</p><a href="/connect">بازگشت</a>')
+     return self.reply(409,page,ctype="text/html; charset=utf-8")
+    if not code:
+     return self.bad("registered_license_not_found",409)
+    page=self.pairing_html('<h1>کد لایسنس قبلی شما</h1><p>این همان کدی است که قبلاً برای این شماره صادر شده؛ کد جدید ساخته نشده است.</p><strong>'+html.escape(code)+'</strong><p><small>فعلاً شماره موبایل تأیید نمی‌شود. کد را مانند رمز حساب نگهداری کن.</small></p><a href="/connect">بازگشت</a>')
+    return self.reply(200,page,ctype="text/html; charset=utf-8")
    except ValueError:
     return self.reply(400,self.pairing_html('<h1>شماره نامعتبر</h1><p>شماره باید ۱۱ رقم و با ۰۹ شروع شود.</p><a href="/connect">بازگشت</a>'),ctype="text/html; charset=utf-8")
-   page=self.pairing_html('<h1>کد اتصال آماده است</h1><p>این کد تا زمان لغو دستی معتبر خواهد ماند. آن را در برنامه آونا ویندوز و ورود ChatGPT استفاده کن:</p><strong>'+html.escape(code)+'</strong><p><small>کد را همین حالا ذخیره کن؛ این صفحه دوباره آن را نمایش نمی‌دهد.</small></p><a href="/connect">بازگشت</a>')
+   page=self.pairing_html('<h1>کد اتصال آماده است</h1><p>این کد تا زمان لغو دستی معتبر خواهد ماند. آن را در برنامه آونا ویندوز و ورود ChatGPT استفاده کن:</p><strong>'+html.escape(code)+'</strong><p><small>کد را نگه دار؛ اگر شماره را دوباره وارد کنی، همین کد نمایش داده می‌شود.</small></p><a href="/connect">بازگشت</a>')
    return self.reply(201,page,ctype="text/html; charset=utf-8")
   if path=="/api/device/activate":
    if not throttle("activate:"+self.ip(),12,3600):return self.bad("rate_limit",429)
