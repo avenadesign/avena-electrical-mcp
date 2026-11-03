@@ -27,6 +27,7 @@ def migrate(path):
      revoked+=1
    kept.append(target['id'][:8])
   c.execute('CREATE UNIQUE INDEX IF NOT EXISTS ux_pair_active_phone ON pairings(phone) WHERE revoked=0')
+  c.execute('CREATE UNIQUE INDEX IF NOT EXISTS ux_one_device_per_license ON pairings(device_id) WHERE device_id IS NOT NULL AND revoked=0')
   c.execute("CREATE TRIGGER IF NOT EXISTS lock_pair_identity BEFORE UPDATE OF phone,code_hash ON pairings BEGIN SELECT RAISE(ABORT,'immutable license'); END")
   c.execute("CREATE TRIGGER IF NOT EXISTS lock_phone_mapping BEFORE UPDATE ON phone_licenses BEGIN SELECT RAISE(ABORT,'immutable license mapping'); END")
   assert c.execute('SELECT COUNT(*) FROM phone_licenses').fetchone()[0]==len(groups)
