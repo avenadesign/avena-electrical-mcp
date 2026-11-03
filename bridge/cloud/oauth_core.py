@@ -25,6 +25,7 @@ def init():
   c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_pair_active_phone ON pairings(phone) WHERE revoked=0")
   c.execute("CREATE TRIGGER IF NOT EXISTS lock_pair_identity BEFORE UPDATE OF phone,code_hash ON pairings BEGIN SELECT RAISE(ABORT,'immutable license'); END")
   c.execute("CREATE TRIGGER IF NOT EXISTS lock_phone_mapping BEFORE UPDATE ON phone_licenses BEGIN SELECT RAISE(ABORT,'immutable license mapping'); END")
+  c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_one_device_per_license ON pairings(device_id) WHERE device_id IS NOT NULL AND revoked=0")
   for table in ("codes","tokens"):
    if "pair_id" not in [row[1] for row in c.execute("PRAGMA table_info("+table+")")]:
     c.execute("ALTER TABLE "+table+" ADD COLUMN pair_id TEXT")
