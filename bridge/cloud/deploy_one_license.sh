@@ -8,7 +8,7 @@ if [[ "$(id -u)" != "0" ]]; then
 fi
 SITE="https://raw.githubusercontent.com/avenadesign/avena-electrical-mcp"
 SRC="$SITE/768c8cda2d6ba382b32100c7332d518063e058a1/bridge/cloud/oauth_core.py"
-FRONT="$SITE/231829ea430dca37708b3ba29846c1e42ba50ca6/bridge/cloud/oauth_front.py"
+FRONT="$SITE/52d698834a9d30b7d30da1ed0ea7f238f6f0a7ea/bridge/cloud/oauth_front.py"
 MIGRATE="$SITE/624136937b0aa92bc371fbeec68a10637b8d5ebe/bridge/cloud/one_license_migration.py"
 CLOUD="/opt/avena-elc/cloud"
 DB="/opt/avena-elc/state/oauth.sqlite"
