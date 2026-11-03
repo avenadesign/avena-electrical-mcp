@@ -119,6 +119,8 @@ small{color:#91a9c3}a{color:#35d3c2}</style><main>"""
    if pair is None:
     if not throttle("login:"+self.ip()):return self.oauth_form(p,"تلاش‌های ناموفق زیاد است. چند دقیقه دیگر دوباره امتحان کن.")
     return self.oauth_form(p,"کد فعال‌سازی معتبر نیست؛ کد کامل را از صفحه دریافت کد کپی کن.")
+   if not pair["device_id"]:
+    return self.oauth_form(p,"ابتدا برنامه ویندوز را با همین کد فعال کن؛ این لایسنس هنوز دستگاه متصل ندارد.")
    code=auth.issue_code(p,pair["id"])
    redirect=p["redirect_uri"]+"?"+urlencode({"code":code,"state":p.get("state",""),"iss":auth.ISSUER})
    return self.reply(302,extra={"Location":redirect})
