@@ -73,7 +73,7 @@ def lookup_pair(code):
  raw=normalize_code(code)
  if len(raw)!=20 or any(ch not in ALPHABET for ch in raw):return None
  with connect() as c:
-  return c.execute("SELECT * FROM pairings WHERE code_hash=? AND revoked=0",(sha(raw),)).fetchone()
+  return c.execute("SELECT p.* FROM pairings p JOIN phone_licenses l ON l.pair_id=p.id WHERE p.code_hash=? AND p.revoked=0",(sha(raw),)).fetchone()
 class LicenseAlreadyExists(ValueError):
  pass
 
@@ -108,12 +108,12 @@ def activate_device(code,device_id):
 def pair_from_agent(header):
  if not header.startswith("Bearer ") or len(header)>170:return None
  with connect() as c:
-  return c.execute("SELECT id FROM pairings WHERE device_token_hash=? AND revoked=0",
+  return c.execute("SELECT p.id FROM pairings p JOIN phone_licenses l ON l.pair_id=p.id WHERE p.device_token_hash=? AND p.revoked=0",
      (sha(header[7:]),)).fetchone()
 def pair_from_oauth(auth):
  if not auth.startswith("Bearer ") or len(auth)>170:return None
  with connect() as c:
-  return c.execute("SELECT p.id FROM tokens t JOIN pairings p ON p.id=t.pair_id AND p.revoked=0 "
+  return c.execute("SELECT p.id FROM tokens t JOIN pairings p ON p.id=t.pair_id AND p.revoked=0 JOIN phone_licenses l ON l.pair_id=p.id "
      "WHERE t.hash=? AND t.kind='access' AND t.expire>? AND t.resource=? AND t.scopes LIKE ?",
      (sha(auth[7:]),int(time.time()),RESOURCE,"%cad:read%")).fetchone()
 def issue_code(p,pair_id=None):
@@ -148,7 +148,7 @@ def exchange(p):
  scope=row["scopes"];resource=row["resource"];pair_id=row["pair_id"]
  if not pair_id:return None,"invalid_grant"
  with connect() as c:
-  active=c.execute("SELECT 1 FROM pairings WHERE id=? AND revoked=0",(pair_id,)).fetchone()
+  active=c.execute("SELECT 1 FROM pairings p JOIN phone_licenses l ON l.pair_id=p.id WHERE p.id=? AND p.revoked=0",(pair_id,)).fetchone()
  if not active:return None,"invalid_grant"
  return {"access_token":issue_token(client,"access",scope,resource,3600,pair_id),"token_type":"Bearer","expires_in":3600,"refresh_token":issue_token(client,"refresh",scope,resource,30*86400,pair_id),"scope":scope},None
 def verify(auth):
