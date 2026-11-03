@@ -4,7 +4,7 @@ root=Path(sys.argv[1]).resolve()
 assert (root/'app/cloud_agent.py').is_file()
 base='https://raw.githubusercontent.com/avenadesign/avena-electrical-mcp'
 sources={
- 'app/analysis_catalog.py':base+'/db28195a45cb8885ea6b3104ac35487c5aa622b7/bridge/shared/analysis_catalog.py',
+ 'app/analysis_catalog.py':base+'/24b99b28e1425cf54a44ac07ef2de87d5c765580/bridge/shared/analysis_catalog.py',
  'app/drawing_schema_v2.py':base+'/9beaff8e9494b083429fca1d0fc0c19709a752fa/bridge/shared/drawing_schema_v2.py'
 }
 for path,url in sources.items():
@@ -22,7 +22,7 @@ old="""    result = response.get('result', {})
             'structuredContent':result.get('structuredContent')}"""
 new="""    result = response.get('result', {})
     content=result.get('content',[])
-    if tool == 'view_screenshot':
+    if tool in ('view_screenshot','view_zoom_and_screenshot'):
         images=[part for part in content if isinstance(part,dict) and part.get('type')=='image'
                 and part.get('mimeType')=='image/png']
         if not images:
@@ -34,11 +34,22 @@ new="""    result = response.get('result', {})
             'structuredContent':result.get('structuredContent')}"""
 assert s.count(old)==1
 p.write_text(s.replace(old,new),encoding='utf-8')
+s=p.read_text(encoding='utf-8')
+needle="                    answer = call_local(tool,local_token,args or {})"
+if s.count(needle)==1:
+ s=s.replace(needle,"""                    answer = call_local(tool,local_token,args or {})
+                    # Only retry read-only calls for transient AutoCAD COM busy errors.
+                    for attempt in range(2):
+                        if answer.get('ok') or 'call was rejected by callee' not in json.dumps(answer,ensure_ascii=False).lower():
+                            break
+                        time.sleep(0.6*(attempt+1))
+                        answer = call_local(tool,local_token,args or {})""")
+ p.write_text(s,encoding='utf-8')
 p=root/'tests/test_advanced_catalog.py'
-s=p.read_text(encoding='utf-8').replace('assert len(READ_TOOLS)>=20','assert len(READ_TOOLS)>=39')
+s=p.read_text(encoding='utf-8').replace('assert len(READ_TOOLS)>=20','assert len(READ_TOOLS)>=40')
 p.write_text(s,encoding='utf-8')
 p=root/'README_PRECISION_CAD_FA.txt'
-s=p.read_text(encoding='utf-8').replace('20 new allowlisted read-only tools','39 new allowlisted read-only tools')
+s=p.read_text(encoding='utf-8').replace('20 new allowlisted read-only tools','40 strictly allowlisted CAD inspection and viewport tools')
 s+='\n11 strictly checked drawing primitives; local Windows approval required.\n'
 p.write_text(s,encoding='utf-8')
 for file in root.rglob('*.py'):
