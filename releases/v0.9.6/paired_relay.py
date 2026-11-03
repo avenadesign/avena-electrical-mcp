@@ -1,7 +1,7 @@
 """Avena Electrical v0.8: paired, read-only queries plus approved additive CAD drawing."""
 import hashlib,json,os,queue,secrets,sqlite3,threading,time,hmac
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
-from draft_schema import validate,preview,SCHEMA
+from drawing_schema_v2 import validate,preview,SCHEMA
 from edit_schema import validate_edits,preview as edit_preview,SCHEMA as EDIT_SCHEMA
 from analysis_catalog import READ_TOOLS,validate_args
 
@@ -126,7 +126,7 @@ class H(BaseHTTPRequestHandler):
      answer=task["reply"] or {"ok":False,"error":"agent_offline"}
      if name in READ_TOOLS and READ_TOOLS[name]["image"] and answer.get("ok"):
       images=[item for item in answer.get("content",[]) if item.get("type")=="image" and item.get("mimeType")=="image/png"]
-      if images and sum(len(item.get("data","")) for item in images)<5_500_000:
+      if images and sum(len(item.get("data","")) for item in images)<3_500_000:
        result={"content":images,"isError":False}
       else:
        result={"content":[{"type":"text","text":"Screenshot unavailable or above safe size limit"}],"isError":True}
