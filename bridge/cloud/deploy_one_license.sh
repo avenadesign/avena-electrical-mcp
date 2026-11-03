@@ -20,6 +20,8 @@ cleanup() {
   status=$?
   if [[ "$SUCCESS" = 0 && "$SERVICES_STOPPED" = 1 ]]; then
     echo "Error: restoring previous login service and database" >&2
+    systemctl stop avena-elc-oauth || true
+    systemctl stop avena-elc-mcp || true
     cp "$TMP/oauth_core.old.py" "$CLOUD/oauth_core.py" || true
     cp "$TMP/oauth_front.old.py" "$CLOUD/oauth_front.py" || true
     if [[ -s "$TMP/pre.sqlite" ]]; then
@@ -50,9 +52,9 @@ python3 -m py_compile "$TMP"/*.py
 cp "$CLOUD/oauth_core.py" "$TMP/oauth_core.old.py"
 cp "$CLOUD/oauth_front.py" "$TMP/oauth_front.old.py"
 echo "Stopping OAuth and MCP for license consolidation"
+SERVICES_STOPPED=1
 systemctl stop avena-elc-oauth
 systemctl stop avena-elc-mcp
-SERVICES_STOPPED=1
 python3 - "$DB" "$TMP/pre.sqlite" <<'PY'
 import sqlite3,sys
 with sqlite3.connect(sys.argv[1]) as source:
