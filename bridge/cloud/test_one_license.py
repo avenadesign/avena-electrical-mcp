@@ -9,12 +9,14 @@ class SingleLicense(unittest.TestCase):
   self.path=Path(self.tmp.name)/"oauth.sqlite"
   os.environ["AVENA_OAUTH_DB"]=str(self.path)
   os.environ["AVENA_OAUTH_LOGIN_HASH"]="test"
+  os.environ["AVENA_LICENSE_RECOVERY_KEY"]="ab"*32
   self.a=importlib.reload(oauth_core)
  def tearDown(self):self.tmp.cleanup()
  def test_new_number_unique_and_wrong_code(self):
   a=self.a;a.init()
   code=a.new_pair("۰۹۱۲۳۴۵۶۷۸۹")
   original=a.lookup_pair(code)
+  self.assertEqual(a.restore_license_code("+989123456789"),code)
   self.assertEqual(original["phone"],"09123456789")
   with self.assertRaises(a.LicenseAlreadyExists):
    a.new_pair("+989123456789")
@@ -52,6 +54,8 @@ class SingleLicense(unittest.TestCase):
   self.assertEqual(report["retained_connection_ids"],[f"{4:032x}"[:8]])
   self.assertEqual(migrate(str(self.path))["duplicate_licenses_revoked"],0)
   a.init()
+  self.assertEqual(a.backfill_existing_license_code("CODE3"),f"{4:032x}"[:8])
+  self.assertEqual(a.restore_license_code("09123334455"),"CODE3")
   self.assertIsNone(a.pair_from_oauth("Bearer test_access")) # stale session stays revoked
   self.assertIsNone(a.lookup_pair("CODE0"))
   with self.assertRaises(a.LicenseAlreadyExists):
