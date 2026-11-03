@@ -103,7 +103,7 @@ small{color:#91a9c3}a{color:#35d3c2}</style><main>"""
    p=self.input()
    if not p:return self.bad("invalid_activation")
    token,error=auth.activate_device(p.get("activation_code",""),p.get("device_id",""))
-   return self.reply(409 if error=="already_activated_on_other_device" else 401,{"error":error}) if error else self.reply(200,token)
+   return self.reply(409 if error in ("already_activated_on_other_device","device_already_has_license") else 401,{"error":error}) if error else self.reply(200,token)
   if path=="/oauth/register":
    if not throttle("reg:"+self.ip(),20,3600):return self.bad("rate_limit",429)
    p=self.input()
