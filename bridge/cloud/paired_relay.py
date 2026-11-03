@@ -7,7 +7,24 @@ from analysis_catalog import READ_TOOLS,validate_args
 
 MCP_SECRET=os.environ["AVENA_MCP_CLIENT_TOKEN"]
 DB=os.environ.get("AVENA_OAUTH_DB","/opt/avena-elc/state/oauth.sqlite")
-queues={};waiting={};last={};guard=threading.RLock()
+queues={};waiting={};last={};expired={};guard=threading.RLock()
+
+def agent_online(pid):
+ now=time.monotonic()
+ with guard:
+  return (now-last.get(pid,0)<35 or
+          any(t["pid"]==pid and t.get("claimed",False) and
+              now-t.get("claimed_at",0)<115 for t in waiting.values()))
+
+def rpc_wait_seconds(name):
+ if name in READ_TOOLS and READ_TOOLS[name]["slow"]:return 103
+ if name in ("autocad_drawing_apply","autocad_entity_edit_apply"):return 100
+ return 80
+
+def error_result(error,**details):
+ return {"content":[{"type":"text","text":json.dumps({"ok":False,"error":error,**details})}],
+         "isError":True}
+
 TOOLS={"autocad_system_status":"system_status","autocad_drawing_info":"drawing_info","autocad_list_layers":"layer_list","autocad_list_blocks":"block_list"}
 
 def get_device(header):
@@ -44,11 +61,21 @@ class H(BaseHTTPRequestHandler):
     q=queues.setdefault(pid,queue.Queue(maxsize=20))
    try:job=q.get(timeout=13)
    except queue.Empty:job={"idle":True}
+   if isinstance(job,dict) and isinstance(job.get("id"),str):
+    with guard:
+     task=waiting.get(job["id"])
+     if task and task["pid"]==pid:
+      task["claimed"]=True
+      task["claimed_at"]=time.monotonic()
+     else:
+      # An RPC may time out while an unclaimed job is queued. Never execute
+      # that stale job later, especially if it would modify the drawing.
+      job={"idle":True}
    return self.send(200,job)
   if self.path=="/agent/status":
    pid=self.get_auth()
    if not pid:return self.send(401,{"error":"unauthorized"})
-   return self.send(200,{"ok":True,"paired":True,"connection_id":pid[:8],"online":time.monotonic()-last.get(pid,0)<35})
+   return self.send(200,{"ok":True,"paired":True,"connection_id":pid[:8],"online":agent_online(pid)})
   return self.send(404,{"error":"not_found"})
  def do_POST(self):
   if self.path=="/mcp":
@@ -68,10 +95,20 @@ class H(BaseHTTPRequestHandler):
   except (ValueError,UnicodeError):return self.send(400,{"error":"json"})
   if self.path=="/agent/result":
    key=msg.get("id")
-   with guard:task=waiting.get(key) if isinstance(key,str) else None
-   if not task or task["pid"]!=pid:return self.send(403,{"error":"foreign_task"})
-   task["reply"]=msg.get("result",{"ok":False,"error":"missing"})
-   task["event"].set()
+   with guard:
+    now=time.monotonic()
+    for old,entry in list(expired.items()):
+     if entry["expires"]<now:expired.pop(old,None)
+    task=waiting.get(key) if isinstance(key,str) else None
+    if not task:
+     stale=expired.get(key) if isinstance(key,str) else None
+     if stale and stale["pid"]==pid:
+      expired.pop(key,None)
+      return self.send(200,{"accepted":False,"stale":True})
+     return self.send(403,{"error":"foreign_task"})
+    if task["pid"]!=pid:return self.send(403,{"error":"foreign_task"})
+    task["reply"]=msg.get("result",{"ok":False,"error":"missing"})
+    task["event"].set()
    return self.send(200,{"accepted":True})
   if msg.get("jsonrpc")!="2.0":return self.send(400,{"error":"rpc"})
   mid=msg.get("id");method=msg.get("method")
@@ -112,29 +149,52 @@ class H(BaseHTTPRequestHandler):
    elif name not in ["workstation_status",*TOOLS,*READ_TOOLS,"autocad_drawing_apply","autocad_entity_edit_apply"] or (name in ["workstation_status",*TOOLS] and args):
     error={"code":-32602,"message":"Unknown tool or arguments"}
    elif name=="workstation_status":
-    result={"content":[{"type":"text","text":json.dumps({"online":time.monotonic()-last.get(pid,0)<35,"paired":True,"connection_id":pid[:8]})}]}
+    result={"content":[{"type":"text","text":json.dumps({"online":agent_online(pid),"paired":True,"connection_id":pid[:8]})}]}
    else:
-    key=secrets.token_hex(16)
-    task={"pid":pid,"event":threading.Event(),"reply":None}
     with guard:
-     waiting[key]=task
-     q=queues.setdefault(pid,queue.Queue(maxsize=20))
-    try:
-     upstream = READ_TOOLS[name]["engine"] if name in READ_TOOLS else TOOLS.get(name)
-     q.put_nowait({"id":key,"tool":"__avena_edit_batch__" if name=="autocad_entity_edit_apply" else "__avena_draw_batch__" if name=="autocad_drawing_apply" else upstream,"arguments":{"operations":plan} if name in ("autocad_drawing_apply","autocad_entity_edit_apply") else read_arguments if name in READ_TOOLS else {}})
-     task["event"].wait(87 if name in READ_TOOLS and READ_TOOLS[name]["slow"] else 65 if name=="autocad_drawing_apply" else 45)
-     answer=task["reply"] or {"ok":False,"error":"agent_offline"}
-     if name in READ_TOOLS and READ_TOOLS[name]["image"] and answer.get("ok"):
-      images=[item for item in answer.get("content",[]) if item.get("type")=="image" and item.get("mimeType")=="image/png"]
-      if images and sum(len(item.get("data","")) for item in images)<3_500_000:
-       result={"content":images,"isError":False}
-      else:
-       result={"content":[{"type":"text","text":"Screenshot unavailable or above safe size limit"}],"isError":True}
+     if any(x["pid"]==pid for x in waiting.values()):
+      result=error_result("agent_busy",message="Another AutoCAD request is in progress; retry later.")
+      queue_task=False
+     elif not agent_online(pid):
+      result=error_result("agent_offline",message="Windows agent has not polled recently.")
+      queue_task=False
      else:
-      result={"content":[{"type":"text","text":json.dumps(answer,ensure_ascii=False)}],"isError":not answer.get("ok",False)}
-    except queue.Full:result={"content":[{"type":"text","text":"Agent busy"}],"isError":True}
-    finally:
-     with guard:waiting.pop(key,None)
+      key=secrets.token_hex(16)
+      task={"pid":pid,"event":threading.Event(),"reply":None,
+            "claimed":False,"claimed_at":None}
+      waiting[key]=task
+      q=queues.setdefault(pid,queue.Queue(maxsize=20))
+      queue_task=True
+    if queue_task:
+     try:
+      upstream=READ_TOOLS[name]["engine"] if name in READ_TOOLS else TOOLS.get(name)
+      q.put_nowait({"id":key,"tool":"__avena_edit_batch__" if name=="autocad_entity_edit_apply"
+                    else "__avena_draw_batch__" if name=="autocad_drawing_apply"
+                    else upstream,
+                    "arguments":{"operations":plan} if name in ("autocad_drawing_apply","autocad_entity_edit_apply")
+                    else read_arguments if name in READ_TOOLS else {}})
+      finished=task["event"].wait(rpc_wait_seconds(name))
+      if finished:
+       answer=task["reply"] if task["reply"] is not None else {"ok":False,"error":"agent_missing_result"}
+      else:
+       answer={"ok":False,"error":"agent_timeout",
+               "message":"Windows did not finish the requested CAD operation before its deadline.",
+               "tool":name,"timeout_seconds":rpc_wait_seconds(name)}
+       with guard:
+        expired[key]={"pid":pid,"expires":time.monotonic()+180}
+      if name in READ_TOOLS and READ_TOOLS[name]["image"] and answer.get("ok"):
+       images=[item for item in answer.get("content",[]) if item.get("type")=="image" and item.get("mimeType")=="image/png"]
+       if images and sum(len(item.get("data","")) for item in images)<3_500_000:
+        result={"content":images,"isError":False}
+       else:
+        result=error_result("image_unavailable_or_too_large")
+      else:
+       result={"content":[{"type":"text","text":json.dumps(answer,ensure_ascii=False)}],
+               "isError":not answer.get("ok",False)}
+     except queue.Full:
+      result=error_result("agent_queue_full")
+     finally:
+      with guard:waiting.pop(key,None)
   else:error={"code":-32601,"message":"Unknown method"}
   return self.send(200,{"jsonrpc":"2.0","id":mid,**({"error":error} if error else {"result":result})})
 
