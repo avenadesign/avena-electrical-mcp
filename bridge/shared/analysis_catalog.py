@@ -23,10 +23,10 @@ HANDLE=string("Hex AutoCAD entity handle",20)
 LAYER=string("Exact existing layer name",100)
 POINT=array(COORD,2,2,"[x,y] in DWG units")
 LAYERS=array(LAYER,1,12)
-def define(engine,description,props=None,required=(),slow=False,image=False,defaults=None):
+def define(engine,description,props=None,required=(),slow=False,image=False,defaults=None,mutates_view=False):
     return {"engine":engine,"description":description,
             "schema":{"type":"object","properties":props or {},"required":list(required),"additionalProperties":False},
-            "slow":slow,"image":image,"defaults":defaults or {}}
+            "slow":slow,"image":image,"defaults":defaults or {},"mutates_view":mutates_view}
 
 READ_TOOLS={
  "autocad_entity_list":define("entity_list","Browse paginated entity geometry, handles, layers, positions and properties. Continue with next_offset; never infer full coverage from one page.",
@@ -85,6 +85,8 @@ READ_TOOLS={
  "autocad_pid_network_graph":define("pid_graph","Analyze P&ID connectivity and equipment graph from current model, read-only, no exports.",slow=True),
  "autocad_pid_line_list":define("pid_line_list","Read P&ID pipe/line network from active drawing; no CSV file generated.",slow=True),
  "autocad_pid_equipment_list":define("pid_equipment_list","Read equipment and tags from P&ID drawing; no CSV file generated.",slow=True),
+ "autocad_view_region_screenshot":define("view_zoom_and_screenshot","Zoom AutoCAD viewport to extents or an exact WCS rectangle and capture a PNG; only view state changes, never DWG geometry.",
+   {"x1":COORD,"y1":COORD,"x2":COORD,"y2":COORD},slow=True,image=True,mutates_view=True),
  "autocad_view_screenshot":define("view_screenshot","Capture current AutoCAD drawing-window PNG for visual inspection; no zoom or drawing changes.",
    image=True,slow=True),
 }
@@ -123,6 +125,8 @@ def validate_args(name,args):
         raise ValueError("Zero-area selection window")
     if name=="autocad_topology" and "gap" in args and "tol" in args and args["gap"]<=args["tol"]:
         raise ValueError("Gap threshold must exceed endpoint tolerance")
+    if name=="autocad_view_region_screenshot" and 0<len(args)<4:
+        raise ValueError("Specify all four window coordinates or none")
     normalized=dict(spec["defaults"])
     normalized.update(args)
     return normalized
