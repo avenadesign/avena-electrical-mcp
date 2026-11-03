@@ -100,10 +100,13 @@ def activate_device(code,device_id):
  if pair["device_id"] and not hmac.compare_digest(pair["device_id"],device_id):
   return None,"already_activated_on_other_device"
  token=secrets.token_urlsafe(48)
- with connect() as c:
-  rows=c.execute("UPDATE pairings SET device_id=?,device_token_hash=?,paired_at=? "
-     "WHERE id=? AND revoked=0 AND (device_id IS NULL OR device_id=?)",
-     (device_id,sha(token),int(time.time()),pair["id"],device_id)).rowcount
+ try:
+  with connect() as c:
+   rows=c.execute("UPDATE pairings SET device_id=?,device_token_hash=?,paired_at=? "
+      "WHERE id=? AND revoked=0 AND (device_id IS NULL OR device_id=?)",
+      (device_id,sha(token),int(time.time()),pair["id"],device_id)).rowcount
+ except sqlite3.IntegrityError:
+  return None,"device_already_has_license"
  if not rows:return None,"already_activated_on_other_device"
  return {"device_token":token,"paired":True,"pairing_id":pair["id"]},None
 def pair_from_agent(header):
