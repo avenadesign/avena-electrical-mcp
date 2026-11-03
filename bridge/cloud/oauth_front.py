@@ -68,7 +68,7 @@ small{color:#91a9c3}a{color:#35d3c2}</style><main>"""
  def do_GET(self):
   path=urlsplit(self.path).path
   if path=="/connect":
-   content=self.pairing_html("""<h1>کد فعال‌سازی آونا الکتریکال</h1><p>شماره موبایلت را وارد کن تا همین حالا کد اتصال بلندمدت بگیری. فعلاً بدون پیامک، OTP و اشتراک.</p>
+   content=self.pairing_html("""<h1>کد فعال‌سازی آونا الکتریکال</h1><p>شماره موبایلت را وارد کن تا برای آن یک لایسنس ثابت صادر شود. هر شماره فقط یک کد دارد؛ ثبت دوباره کد جدید نمی‌سازد. فعلاً بدون پیامک، OTP و اشتراک.</p>
 <form action="/connect" method="post"><label>شماره موبایل</label><input type="tel" name="mobile" placeholder="09123456789" required maxlength="16"><button>دریافت کد اتصال</button></form>
 <p><small>شماره در این نسخه تأیید نمی‌شود. کد را مثل رمز نگه دار؛ با واردکردن مجدد شماره قابل بازیابی نیست و تا لغو دستی معتبر است.</small></p>""")
    return self.reply(200,content,ctype="text/html; charset=utf-8")
@@ -91,9 +91,12 @@ small{color:#91a9c3}a{color:#35d3c2}</style><main>"""
    p=self.input(form=True)
    if not p:return self.bad("invalid_mobile")
    try:code=auth.new_pair(p.get("mobile",""))
+   except auth.LicenseAlreadyExists:
+    page=self.pairing_html('<h1>این شماره قبلاً ثبت شده است</h1><p>برای هر شماره فقط یک لایسنس دائمی وجود دارد. کد قبلی معتبر است و امکان صدور کد دوم یا تغییر لایسنس وجود ندارد.</p><p><small>فعلاً بازیابی کد بدون احراز مالکیت شماره فعال نیست؛ کد خود را نگه دار.</small></p><a href="/connect">بازگشت</a>')
+    return self.reply(409,page,ctype="text/html; charset=utf-8")
    except ValueError:
     return self.reply(400,self.pairing_html('<h1>شماره نامعتبر</h1><p>شماره باید ۱۱ رقم و با ۰۹ شروع شود.</p><a href="/connect">بازگشت</a>'),ctype="text/html; charset=utf-8")
-   page=self.pairing_html('<h1>کد اتصال آماده است</h1><p>این کد تا زمان لغو دستی معتبر خواهد ماند. آن را در برنامه آونا ویندوز و ورود ChatGPT استفاده کن:</p><strong>'+html.escape(code)+'</strong><p><small>کد را همین حالا ذخیره کن؛ این صفحه دوباره آن را نمایش نمی‌دهد.</small></p><a href="/connect">ساخت کد برای دستگاه دیگر</a>')
+   page=self.pairing_html('<h1>کد اتصال آماده است</h1><p>این کد تا زمان لغو دستی معتبر خواهد ماند. آن را در برنامه آونا ویندوز و ورود ChatGPT استفاده کن:</p><strong>'+html.escape(code)+'</strong><p><small>کد را همین حالا ذخیره کن؛ این صفحه دوباره آن را نمایش نمی‌دهد.</small></p><a href="/connect">بازگشت</a>')
    return self.reply(201,page,ctype="text/html; charset=utf-8")
   if path=="/api/device/activate":
    if not throttle("activate:"+self.ip(),12,3600):return self.bad("rate_limit",429)
