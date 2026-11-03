@@ -170,7 +170,7 @@ small{color:#91a9c3}a{color:#35d3c2}</style><main>"""
    if self.headers.get("MCP-Protocol-Version"):headers["MCP-Protocol-Version"]=self.headers["MCP-Protocol-Version"]
    try:
     req=urllib.request.Request(BACKEND,body,headers,method="POST")
-    with urllib.request.urlopen(req,timeout=70) as response:
+    with urllib.request.urlopen(req,timeout=115) as response:
      output=response.read(4194304)
      return self.reply(response.status,output,ctype=response.headers.get("Content-Type","application/json"))
    except urllib.error.HTTPError as error:
