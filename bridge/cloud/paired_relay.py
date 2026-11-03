@@ -1,8 +1,9 @@
 """Avena Electrical v0.8: paired, read-only queries plus approved additive CAD drawing."""
 import hashlib,json,os,queue,secrets,sqlite3,threading,time,hmac
 from http.server import ThreadingHTTPServer,BaseHTTPRequestHandler
-from draft_schema import validate,preview,SCHEMA
+from drawing_schema_v2 import validate,preview,SCHEMA
 from edit_schema import validate_edits,preview as edit_preview,SCHEMA as EDIT_SCHEMA
+from analysis_catalog import READ_TOOLS,validate_args
 
 MCP_SECRET=os.environ["AVENA_MCP_CLIENT_TOKEN"]
 DB=os.environ.get("AVENA_OAUTH_DB","/opt/avena-elc/state/oauth.sqlite")
@@ -61,7 +62,7 @@ class H(BaseHTTPRequestHandler):
   else:return self.send(404,{"error":"not_found"})
   try:
    n=int(self.headers.get("Content-Length","0"))
-   if not 0<n<2097152:return self.send(413,{"error":"size"})
+   if not 0<n<8388608:return self.send(413,{"error":"size"})
    msg=json.loads(self.rfile.read(n))
    if not isinstance(msg,dict):return self.send(400,{"error":"json"})
   except (ValueError,UnicodeError):return self.send(400,{"error":"json"})
@@ -77,11 +78,12 @@ class H(BaseHTTPRequestHandler):
   if mid is None:return self.send(202)
   result=None;error=None
   if method=="initialize":
-   result={"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"Avena Electrical","version":"0.9.0"}}
+   result={"protocolVersion":"2025-06-18","capabilities":{"tools":{}},"serverInfo":{"name":"Avena Electrical","version":"0.9.6"}}
   elif method=="ping":result={}
   elif method=="tools/list":
    result={"tools":[
      *[{"name":name,"description":"Read-only AutoCAD query","inputSchema":{"type":"object","properties":{},"additionalProperties":False},"annotations":{"readOnlyHint":True,"destructiveHint":False}} for name in ["workstation_status",*TOOLS]],
+     *[{"name":name,"description":spec["description"],"inputSchema":spec["schema"],"annotations":{"readOnlyHint":not spec.get("mutates_view",False),"destructiveHint":False}} for name,spec in READ_TOOLS.items()],
      {"name":"autocad_drawing_preview","description":"Validate and summarize a plan to draw lines, polylines, circles, rectangles, text or existing blocks in the active DWG. No DWG changes.","inputSchema":{"type":"object","required":["operations"],"additionalProperties":False,"properties":{"operations":SCHEMA}},"annotations":{"readOnlyHint":True,"destructiveHint":False}},
      {"name":"autocad_entity_edit_preview","description":"Preview restricted edits on existing AutoCAD entity handles: move, relabel text, or change layer/color. Does not edit DWG.","inputSchema":{"type":"object","required":["operations"],"additionalProperties":False,"properties":{"operations":EDIT_SCHEMA}},"annotations":{"readOnlyHint":True,"destructiveHint":False}},
      {"name":"autocad_entity_edit_apply","description":"Edit existing DWG entities by handle. Windows user MUST confirm on screen. NO deletes or automatic saves.","inputSchema":{"type":"object","required":["operations"],"additionalProperties":False,"properties":{"operations":EDIT_SCHEMA}},"annotations":{"readOnlyHint":False,"destructiveHint":False,"idempotentHint":False}},
@@ -91,6 +93,10 @@ class H(BaseHTTPRequestHandler):
    p=msg.get("params") or {};name=p.get("name")
    args=p.get("arguments") or {}
    plan=None
+   read_arguments={}
+   if name in READ_TOOLS:
+    try:read_arguments=validate_args(name,args)
+    except ValueError as exc:error={"code":-32602,"message":str(exc)}
    if name in ("autocad_drawing_preview","autocad_drawing_apply","autocad_entity_edit_preview","autocad_entity_edit_apply"):
     try:
      if not isinstance(args,dict) or set(args)!={"operations"}:raise ValueError("Expected operations array")
@@ -103,7 +109,7 @@ class H(BaseHTTPRequestHandler):
     result={"content":[{"type":"text","text":json.dumps(preview(plan),ensure_ascii=False)}]}
    elif name=="autocad_entity_edit_preview":
     result={"content":[{"type":"text","text":json.dumps(edit_preview(plan),ensure_ascii=False)}]}
-   elif name not in ["workstation_status",*TOOLS,"autocad_drawing_apply","autocad_entity_edit_apply"] or (name in ["workstation_status",*TOOLS] and args):
+   elif name not in ["workstation_status",*TOOLS,*READ_TOOLS,"autocad_drawing_apply","autocad_entity_edit_apply"] or (name in ["workstation_status",*TOOLS] and args):
     error={"code":-32602,"message":"Unknown tool or arguments"}
    elif name=="workstation_status":
     result={"content":[{"type":"text","text":json.dumps({"online":time.monotonic()-last.get(pid,0)<35,"paired":True,"connection_id":pid[:8]})}]}
@@ -114,10 +120,18 @@ class H(BaseHTTPRequestHandler):
      waiting[key]=task
      q=queues.setdefault(pid,queue.Queue(maxsize=20))
     try:
-     q.put_nowait({"id":key,"tool":"__avena_edit_batch__" if name=="autocad_entity_edit_apply" else "__avena_draw_batch__" if name=="autocad_drawing_apply" else TOOLS[name],"arguments":{"operations":plan} if name in ("autocad_drawing_apply","autocad_entity_edit_apply") else {}})
-     task["event"].wait(65 if name=="autocad_drawing_apply" else 45)
+     upstream = READ_TOOLS[name]["engine"] if name in READ_TOOLS else TOOLS.get(name)
+     q.put_nowait({"id":key,"tool":"__avena_edit_batch__" if name=="autocad_entity_edit_apply" else "__avena_draw_batch__" if name=="autocad_drawing_apply" else upstream,"arguments":{"operations":plan} if name in ("autocad_drawing_apply","autocad_entity_edit_apply") else read_arguments if name in READ_TOOLS else {}})
+     task["event"].wait(87 if name in READ_TOOLS and READ_TOOLS[name]["slow"] else 65 if name=="autocad_drawing_apply" else 45)
      answer=task["reply"] or {"ok":False,"error":"agent_offline"}
-     result={"content":[{"type":"text","text":json.dumps(answer,ensure_ascii=False)}],"isError":not answer.get("ok",False)}
+     if name in READ_TOOLS and READ_TOOLS[name]["image"] and answer.get("ok"):
+      images=[item for item in answer.get("content",[]) if item.get("type")=="image" and item.get("mimeType")=="image/png"]
+      if images and sum(len(item.get("data","")) for item in images)<3_500_000:
+       result={"content":images,"isError":False}
+      else:
+       result={"content":[{"type":"text","text":"Screenshot unavailable or above safe size limit"}],"isError":True}
+     else:
+      result={"content":[{"type":"text","text":json.dumps(answer,ensure_ascii=False)}],"isError":not answer.get("ok",False)}
     except queue.Full:result={"content":[{"type":"text","text":"Agent busy"}],"isError":True}
     finally:
      with guard:waiting.pop(key,None)
