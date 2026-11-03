@@ -95,8 +95,9 @@ small{color:#91a9c3}a{color:#35d3c2}</style><main>"""
     try:
      code=auth.restore_license_code(p.get("mobile",""))
     except RuntimeError:
-     page=self.pairing_html('<h1>بازیابی کد موجود ممکن نیست</h1><p>شماره قبلاً ثبت شده، اما نسخه قابل‌بازیابی کد قدیمی ثبت نشده است. لایسنس تغییر نکرده؛ برای بازیابی با پشتیبانی آونا تماس بگیر.</p><a href="/connect">بازگشت</a>')
-     return self.reply(409,page,ctype="text/html; charset=utf-8")
+     phone=auth.normalize_phone(p.get("mobile",""))
+     page=self.pairing_html('<h1>ثبت یک‌باره کد قدیمی</h1><p>این شماره از نسخه قدیمی لایسنس دارد. برای اینکه از دفعه بعد فقط با شماره همان کد نمایش داده شود، یک‌بار کد فعلی را وارد کن. لایسنس عوض نمی‌شود.</p><form action="/connect/recover" method="post"><input name="mobile" value="'+html.escape(phone,quote=True)+'" readonly><label>کد لایسنس قبلی</label><input type="text" name="activation_code" required maxlength="30" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX"><button>ثبت و نمایش کد قبلی</button></form><a href="/connect">بازگشت</a>')
+     return self.reply(200,page,ctype="text/html; charset=utf-8")
     if not code:
      return self.bad("registered_license_not_found",409)
     page=self.pairing_html('<h1>کد لایسنس قبلی شما</h1><p>این همان کدی است که قبلاً برای این شماره صادر شده؛ کد جدید ساخته نشده است.</p><strong>'+html.escape(code)+'</strong><p><small>فعلاً شماره موبایل تأیید نمی‌شود. کد را مانند رمز حساب نگهداری کن.</small></p><a href="/connect">بازگشت</a>')
@@ -105,6 +106,22 @@ small{color:#91a9c3}a{color:#35d3c2}</style><main>"""
     return self.reply(400,self.pairing_html('<h1>شماره نامعتبر</h1><p>شماره باید ۱۱ رقم و با ۰۹ شروع شود.</p><a href="/connect">بازگشت</a>'),ctype="text/html; charset=utf-8")
    page=self.pairing_html('<h1>کد اتصال آماده است</h1><p>این کد تا زمان لغو دستی معتبر خواهد ماند. آن را در برنامه آونا ویندوز و ورود ChatGPT استفاده کن:</p><strong>'+html.escape(code)+'</strong><p><small>کد را نگه دار؛ اگر شماره را دوباره وارد کنی، همین کد نمایش داده می‌شود.</small></p><a href="/connect">بازگشت</a>')
    return self.reply(201,page,ctype="text/html; charset=utf-8")
+  if path=="/connect/recover":
+   if not throttle("restore:"+self.ip(),6,3600):
+    return self.bad("rate_limit",429)
+   p=self.input(form=True)
+   if not p:return self.bad("invalid_request")
+   try:
+    phone=auth.normalize_phone(p.get("mobile",""))
+    code=p.get("activation_code","")
+    pair=auth.lookup_pair(code)
+    if pair is None or pair["phone"]!=phone:
+     return self.reply(401,self.pairing_html('<h1>کد صحیح نیست</h1><p>کدی که وارد کردی متعلق به این شماره نیست یا غیرفعال شده است.</p><a href="/connect">بازگشت</a>'),ctype="text/html; charset=utf-8")
+    auth.backfill_existing_license_code(code)
+    page=self.pairing_html('<h1>کد قبلی بازیابی شد</h1><p>همین کد ذخیره شد؛ از این پس فقط شماره را وارد کن تا نمایش داده شود. هیچ لایسنسی تغییر نکرد.</p><strong>'+html.escape(code)+'</strong><a href="/connect">بازگشت</a>')
+    return self.reply(200,page,ctype="text/html; charset=utf-8")
+   except ValueError:
+    return self.bad("invalid_phone_or_code")
   if path=="/api/device/activate":
    if not throttle("activate:"+self.ip(),12,3600):return self.bad("rate_limit",429)
    p=self.input()
