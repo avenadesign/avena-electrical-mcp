@@ -1,5 +1,6 @@
 """Avena Electrical OAuth 2.1 core, DCR and S256 PKCE; no third party dependencies."""
 import base64,hashlib,hmac,json,os,re,secrets,sqlite3,time
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from urllib.parse import urlsplit
 BASE=os.environ.get("AVENA_PUBLIC_BASE","https://elc.avenaai.ir").rstrip("/")
 RESOURCE=BASE+"/mcp"; ISSUER=BASE
@@ -22,6 +23,7 @@ def init():
     created INTEGER NOT NULL, revoked INTEGER NOT NULL DEFAULT 0,
     device_id TEXT, device_token_hash TEXT, paired_at INTEGER)""")
   c.execute("CREATE TABLE IF NOT EXISTS phone_licenses(phone TEXT PRIMARY KEY,pair_id TEXT UNIQUE NOT NULL,created INTEGER NOT NULL)")
+  c.execute("CREATE TABLE IF NOT EXISTS license_recovery(pair_id TEXT PRIMARY KEY, encrypted_code TEXT NOT NULL)")
   c.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_pair_active_phone ON pairings(phone) WHERE revoked=0")
   c.execute("CREATE TRIGGER IF NOT EXISTS lock_pair_identity BEFORE UPDATE OF phone,code_hash ON pairings BEGIN SELECT RAISE(ABORT,'immutable license'); END")
   c.execute("CREATE TRIGGER IF NOT EXISTS lock_phone_mapping BEFORE UPDATE ON phone_licenses BEGIN SELECT RAISE(ABORT,'immutable license mapping'); END")
@@ -78,6 +80,47 @@ def lookup_pair(code):
 class LicenseAlreadyExists(ValueError):
  pass
 
+def _recovery_crypto_key():
+ # A 256-bit random secret in the private systemd EnvironmentFile, never GitHub.
+ value=os.environ.get("AVENA_LICENSE_RECOVERY_KEY","")
+ if not re.fullmatch(r"[0-9a-fA-F]{64}",value):
+  raise RuntimeError("Missing AVENA_LICENSE_RECOVERY_KEY")
+ return bytes.fromhex(value)
+
+def encrypt_license_code(pair_id,code):
+ nonce=secrets.token_bytes(12)
+ aad=pair_id.encode("ascii")
+ sealed=AESGCM(_recovery_crypto_key()).encrypt(nonce,code.encode("ascii"),aad)
+ return base64.urlsafe_b64encode(nonce+sealed).decode("ascii")
+
+def decrypt_license_code(pair_id,sealed):
+ raw=base64.urlsafe_b64decode(sealed.encode("ascii"))
+ code=AESGCM(_recovery_crypto_key()).decrypt(raw[:12],raw[12:],pair_id.encode("ascii")).decode("ascii")
+ return code
+
+def restore_license_code(phone):
+ phone=normalize_phone(phone)
+ with connect() as db:
+  row=db.execute("""SELECT p.id,p.code_hash,r.encrypted_code FROM phone_licenses l
+                    JOIN pairings p ON p.id=l.pair_id
+                    LEFT JOIN license_recovery r ON r.pair_id=p.id
+                    WHERE l.phone=? AND p.revoked=0""",(phone,)).fetchone()
+ if row is None:return None
+ if not row["encrypted_code"]:raise RuntimeError("Legacy license recovery unavailable; contact administrator")
+ code=decrypt_license_code(row["id"],row["encrypted_code"])
+ if not hmac.compare_digest(sha(normalize_code(code)),row["code_hash"]):
+  raise RuntimeError("License recovery integrity validation failed")
+ return code
+
+def backfill_existing_license_code(code):
+ pair=lookup_pair(code)
+ if pair is None:raise ValueError("Invalid existing license code")
+ encrypted=encrypt_license_code(pair["id"],code)
+ with connect() as db:
+  db.execute("INSERT OR REPLACE INTO license_recovery(pair_id,encrypted_code) VALUES (?,?)",
+             (pair["id"],encrypted))
+ return pair["id"][:8]
+
 def new_pair(phone):
  phone=normalize_phone(phone)
  with connect() as db:
@@ -87,10 +130,12 @@ def new_pair(phone):
   code="".join(secrets.choice(ALPHABET) for _ in range(20))
   key=secrets.token_hex(16)
   timestamp=int(time.time())
+  encrypted=encrypt_license_code(key,"-".join(code[i:i+4] for i in range(0,20,4)))
   db.execute("INSERT INTO pairings(id,phone,code_hash,created) VALUES(?,?,?,?)",
              (key,phone,sha(code),timestamp))
   db.execute("INSERT INTO phone_licenses(phone,pair_id,created) VALUES(?,?,?)",
              (phone,key,timestamp))
+  db.execute("INSERT INTO license_recovery(pair_id,encrypted_code) VALUES(?,?)",(key,encrypted))
  return "-".join(code[i:i+4] for i in range(0,20,4))
 
 def activate_device(code,device_id):
